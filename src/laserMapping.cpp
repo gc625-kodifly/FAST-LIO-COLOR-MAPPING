@@ -158,6 +158,13 @@ geometry_msgs::PoseStamped msg_body_pose;
 shared_ptr<Preprocess> p_pre(new Preprocess());
 shared_ptr<ImuProcess> p_imu(new ImuProcess());
 
+
+// temp image_point publisher
+
+ros::Publisher image_pub;
+ros::Publisher lidar_for_coloring_pub;
+
+
 void SigHandle(int sig)
 {
     flg_exit = true;
@@ -383,6 +390,9 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
 
 bool find_best_camera_match(double lidar_time, int& best_id)
 {
+
+    ROS_WARN("lidar_time and best id: %lf, %d", lidar_time, best_id);
+
     if (camera_time_buffer.empty())
         return false;
     int left = 0;
@@ -407,6 +417,7 @@ bool find_best_camera_match(double lidar_time, int& best_id)
     }
     best_id = middle;
     double max_time_diff = 100;
+    ROS_WARN("lidar_time - camera_time_buffer[best_id]: %lf", lidar_time - camera_time_buffer[best_id]);
     if (lidar_time - camera_time_buffer[best_id] > max_time_diff)
         return false;
     else
@@ -449,6 +460,7 @@ bool sync_packages(MeasureGroup &meas)
 
         if (find_best_camera_match(lidar_end_time, camera_id))
         {
+
             meas.image = camera_buffer[camera_id];
             meas.match_camera_time = meas.image->header.stamp.toSec();
             for (int i = 0; i <= camera_id; i++)
@@ -462,7 +474,7 @@ bool sync_packages(MeasureGroup &meas)
 
     }
 
-
+    ROS_WARN("LAST TIMESTAMP IMU: %lf, LIDAR END TIME: %lf", last_timestamp_imu, lidar_end_time);
 
     if (last_timestamp_imu < lidar_end_time)
     {
@@ -472,6 +484,8 @@ bool sync_packages(MeasureGroup &meas)
     /*** push imu data, and pop from imu buffer ***/
     double imu_time = imu_buffer.front()->header.stamp.toSec();
     meas.imu.clear();
+
+    
     while ((!imu_buffer.empty()) && (imu_time < lidar_end_time))
     {
         imu_time = imu_buffer.front()->header.stamp.toSec();
@@ -498,6 +512,7 @@ void camera_cbk(const sensor_msgs::ImageConstPtr& msg)
     camera_time_buffer.push_back(msg_time.toSec() + time_offset_lidar_camera);
     mtx_buffer.unlock();
     sig_buffer.notify_all();
+    ROS_WARN("IMAGE PUBLISHED");
 }
 
 int process_increments = 0;
@@ -866,6 +881,10 @@ void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_s
     Eigen::Vector3d tcl = T_cl.translation();
     cv::Mat rgb = cv_bridge::toCvCopy(*msg_rgb, "bgr8")->image;
 
+    ROS_WARN("camera_state: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", camera_state(0, 0), camera_state(0, 1), camera_state(0, 2), camera_state(1, 0), camera_state(1, 1), camera_state(1, 2), camera_state(2, 0), camera_state(2, 1), camera_state(2, 2));
+    // log rcl and tcl
+    ROS_WARN("rcl: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", Rcl(0, 0), Rcl(0, 1), Rcl(0, 2), Rcl(1, 0), Rcl(1, 1), Rcl(1, 2), Rcl(2, 0), Rcl(2, 1), Rcl(2, 2));
+    ROS_WARN("tcl: \n %lf %lf %lf \n", tcl(0), tcl(1), tcl(2));
     cv::Mat hsv;
     cv::cvtColor(rgb, hsv, cv::COLOR_BGR2HSV);
 
@@ -883,7 +902,9 @@ void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_s
     cv::Mat adjusted_image;
     cv::cvtColor(hsv, adjusted_image, cv::COLOR_HSV2BGR);
     rgb = adjusted_image;
-
+    cv::imwrite("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/image.png", adjusted_image);
+    int skip_factor = 1; 
+    cv::Scalar point_color(0, 0, 0); 
     for (int i = 0; i < pc->points.size(); i++)
     {
         Eigen::Vector3d point_pc = {pc->points[i].x, pc->points[i].y, pc->points[i].z};
@@ -904,10 +925,22 @@ void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_s
                 point_rgb.g = (rgb.at<cv::Vec3b>(v, u)[1]);
                 point_rgb.r = (rgb.at<cv::Vec3b>(v, u)[2]);
                 pc_color->push_back(point_rgb);
+
+                if (i % skip_factor == 0){
+                    // cv::circle(rgb, cv::Point(u, v), 3, cv::Scalar(point_rgb.b, point_rgb.g, point_rgb.r), 1);
+                    cv::circle(rgb, cv::Point(u, v), 3, point_color, -1);
+                }
+                    
             }
         }
 
     }
+    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(msg_rgb->header, "bgr8", rgb).toImageMsg();
+    image_pub.publish(image_msg);
+    sensor_msgs::PointCloud2 output;
+    pcl::toROSMsg(*pc, output);
+    lidar_for_coloring_pub.publish(output);
+    
 }
 
 int main(int argc, char** argv)
@@ -957,6 +990,9 @@ int main(int argc, char** argv)
     nh.param<double>("color_mapping/time_offset_lidar_to_camera", time_offset_lidar_camera, 0.0);
     cout<<"p_pre->lidar_type "<<p_pre->lidar_type<<endl;
     
+    image_pub = nh.advertise<sensor_msgs::Image>("image_with_points", 1);
+    lidar_for_coloring_pub = nh.advertise<sensor_msgs::PointCloud2>("lidar_for_coloring", 1);
+    
     path.header.stamp    = ros::Time::now();
     path.header.frame_id ="camera_init";
 
@@ -988,6 +1024,10 @@ int main(int argc, char** argv)
     T_LC.translate(Camera_T_wrt_Lidar);
     T_LC.rotate(Camera_R_wrt_Lidar);
 
+    // log T_IL and T_LC
+
+    ROS_WARN("T_IL: \n %lf %lf %lf %lf \n %lf %lf %lf %lf \n %lf %lf %lf %lf \n", T_IL(0, 0), T_IL(0, 1), T_IL(0, 2), T_IL(0, 3), T_IL(1, 0), T_IL(1, 1), T_IL(1, 2), T_IL(1, 3), T_IL(2, 0), T_IL(2, 1), T_IL(2, 2), T_IL(2, 3));
+    ROS_WARN("T_LC: \n %lf %lf %lf %lf \n %lf %lf %lf %lf \n %lf %lf %lf %lf \n", T_LC(0, 0), T_LC(0, 1), T_LC(0, 2), T_LC(0, 3), T_LC(1, 0), T_LC(1, 1), T_LC(1, 2), T_LC(1, 3), T_LC(2, 0), T_LC(2, 1), T_LC(2, 2), T_LC(2, 3));
 
 
     p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);

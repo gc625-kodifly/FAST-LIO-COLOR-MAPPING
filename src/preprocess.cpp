@@ -78,6 +78,11 @@ void Preprocess::process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointClo
     velodyne_handler(msg);
     break;
   
+  case INNOVUSION:
+    innovusion_handler(msg);
+    break;
+
+
   default:
     printf("Error LiDAR Type");
     break;
@@ -450,6 +455,66 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
       }
     }
 }
+
+
+void Preprocess::innovusion_handler(const sensor_msgs::PointCloud2::ConstPtr &msg){
+  pl_surf.clear();
+  pl_corn.clear();
+  pl_full.clear();
+  pcl::PointCloud<innovusion_ros::Point> pl_orig;
+  pcl::fromROSMsg(*msg, pl_orig);
+  int plsize = pl_orig.size();
+  pl_corn.reserve(plsize);
+  pl_surf.reserve(plsize);
+
+  double time_stamp = msg->header.stamp.toSec();
+  // cout << "===================================" << endl;
+  // printf("Pt size = %d, N_SCANS = %d\r\n", plsize, N_SCANS);
+  // printf("time_stamp = %f\r\n", time_stamp);
+  // printf("pl_orig.points.size(): %d\n", pl_orig.points.size());
+
+  for (int i = 0; i < pl_orig.points.size(); i++)
+  {
+    // debug statements to help find out why no points are being added to pl_surf
+    // printf("i: %d\n", i);
+    // printf("pl_orig.points.size(): %d\n", pl_orig.points.size());
+    // printf("pl_orig.points[i].x: %f\n", pl_orig.points[i].x);
+    // printf("pl_orig.points[i].y: %f\n", pl_orig.points[i].y);
+    // printf("pl_orig.points[i].z: %f\n", pl_orig.points[i].z);
+    // printf("pl_orig.points[i].intensity: %f\n", pl_orig.points[i].intensity);
+    // printf("pl_orig.points[i].timestamp: %f\n", pl_orig.points[i].timestamp);
+    // printf("time_unit_scale: %f\n", time_unit_scale);
+    // printf("blind: %f\n", blind);
+    // printf("point_filter_num: %d\n", point_filter_num);
+    // printf("===================================\n");
+    if (i % point_filter_num != 0) continue;
+
+    double range = pl_orig.points[i].x * pl_orig.points[i].x + pl_orig.points[i].y * pl_orig.points[i].y + pl_orig.points[i].z * pl_orig.points[i].z;
+    
+    if (range < (blind * blind)) continue;
+
+
+
+
+    Eigen::Vector3d pt_vec;
+    PointType added_pt;
+    added_pt.x = pl_orig.points[i].x;
+    added_pt.y = pl_orig.points[i].y;
+    added_pt.z = pl_orig.points[i].z;
+    added_pt.intensity = pl_orig.points[i].intensity;
+    added_pt.normal_x = 0;
+    added_pt.normal_y = 0;
+    added_pt.normal_z = 0;
+    added_pt.curvature = pl_orig.points[i].timestamp * time_unit_scale; // curvature unit: ms
+
+    pl_surf.points.push_back(added_pt);
+  }
+
+  printf("pl_surf size: %d\n", pl_surf.size());
+
+}
+
+
 
 void Preprocess::give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &types)
 {

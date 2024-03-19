@@ -89,3 +89,11 @@ catkin_package(
 add_executable(fastlio_mapping src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
 target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES} ${OpenCV_LIBS})
 target_include_directories(fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+
+
+# Add your node's executable
+add_executable(ImagePublisher src/camera_interface.cpp)
+# Link libraries
+target_link_libraries(ImagePublisher ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(pcd_saver src/pcd_saver.cpp)
+target_link_libraries(pcd_saver ${catkin_LIBRARIES} ${PCL_LIBRARIES})
