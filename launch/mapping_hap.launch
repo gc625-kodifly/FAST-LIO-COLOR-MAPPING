@@ -23,7 +23,7 @@
     </node>
 
 	<!-- <include file="$(find livox_ros_driver2)/launch/msg_HAP.launch" /> -->
-
+    <node name="pcd_saver" pkg="fast_lio_color_mapping" type="pcd_saver" output="screen" />
 	<group if="$(arg rviz)">
 	<node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find fast_lio_color_mapping)/rviz_cfg/loam_livox.rviz" />
 	</group>
