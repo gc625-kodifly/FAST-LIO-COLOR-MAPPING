@@ -10,8 +10,7 @@
 
 
 	<rosparam command="load" file="$(find fast_lio_color_mapping)/config/hap_1080.yaml" />
-    <!-- <arg name="type" default="normal" doc="type [normal, modbus]"/> -->
-
+    
 	<param name="feature_extract_enable" type="bool" value="0"/>
 	<param name="point_filter_num" type="int" value="3"/>
 	<param name="max_iteration" type="int" value="3" />
@@ -21,19 +20,17 @@
 	<param name="runtime_pos_log_enable" type="bool" value="0" />
     <node pkg="fast_lio_color_mapping" type="fastlio_mapping" name="laserMapping" output="screen" /> 
 	
-    <node pkg="wit_ros_imu" type="wit_$(arg type)_ros.py" name="imu" output="screen">
-        <param name="port"               type = "str"    value="/dev/ttyUSB0"/>
-
     <!-- <node pkg="fast_lio_color_mapping" type="ImagePublisher" name="ImagePublisher" output="screen" />  -->
 
-    <!-- <node pkg="wit_ros_imu" type="wit_$(arg type)_ros.py" name="imu" output="screen">
-        <param name="port"               type = "str"    value="/dev/imu_usb"/>
+    <node pkg="wit_ros_imu" type="wit_$(arg type)_ros.py" name="imu" output="screen">
+        <param name="port"               type = "str"    value="/dev/ttyUSB0"/>
         <param name="baud"               type = "int"    value="115200"/>
     </node> 
 
     <include file="$(find livox_ros_driver2)/launch_ROS1/msg_HAP.launch">
         <arg name="bd_list" value="$(arg bd_list)" />
     </include>
+
     <node pkg="ros_camera_interface" type="image_publisher_node" name="image_publisher_node" output="screen">
         <param name="rtsp_username" value="$(arg rtsp_username)" />
         <param name="rtsp_password" value="$(arg rtsp_password)" />
