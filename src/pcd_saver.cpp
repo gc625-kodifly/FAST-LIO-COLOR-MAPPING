@@ -15,7 +15,7 @@ void SigHandle(int sig)
     ROS_INFO("Start write pcd");
     voxel->setInputCloud(pc);
     voxel->filter(*pc);
-    pcl::io::savePCDFile("/home/admin/workspace/src/FAST-LIO-COLOR-MAPPING/PCD/colored_map.pcd", *pc);
+    pcl::io::savePCDFile("/home/admin/data/colored_map.pcd", *pc);
     ROS_INFO("Done");
     ros::shutdown();
 }
