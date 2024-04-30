@@ -3,7 +3,7 @@ common:
     imu_topic:  "/wit/imu"
     camera_topic: "/image_topic"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
-    time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
+    time_offset_lidar_to_imu: 0  # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
                                   # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
 
 preprocess:
@@ -12,21 +12,24 @@ preprocess:
     blind: 3
 
 color_mapping:
-    K_camera: [999.14906,   0.     , 976.74091,
-           0.     , 699.2629 , 481.28932,
+    use_no_ekf_coloring: true
+    K_camera: [797.45698,   0.     , 648.44501,
+           0.     , 750.07455, 373.64858,
            0.     ,   0.     ,   1.     ]
-    D_camera: [-0.008523, -0.006607, 0.000775, -0.000712, 0.000000]
-    time_offset_lidar_to_camera: 0.0                # ms
-    extrinsic_T: [0.0176354, 0.0801295, -0.0511459]          # lidar to camera
+    D_camera: [-0.385462, 0.116395, -0.000643, 0.000092, 0.000000]
+    time_offset_lidar_to_camera: 0                # ms         # lidar to camera
     # extrinsic_R: [-0.00436301,-0.999976,-0.00546917,
     #               0.0435895,0.00527384,-0.999036,
     #               0.99904,-0.0045972,0.0435655]
     # extrinsic_R: [-0.00784346,-0.999926,-0.00927599,
     #               0.0250127,0.00907719,-0.999646,
     #               0.999656,-0.0080727,0.0249397]
-    extrinsic_R: [-0.00784346,0.0250127,0.999656,
-                  -0.999926,0.00907719,-0.0080727,
-                  -0.00927599,-0.999646,0.0249397]
+    extrinsic_T: [0.0145067, 0.135779, -0.0289004]          # lidar to camera
+
+    extrinsic_R: [-0.0297875 ,0.180053,0.983206 ,
+                -0.999248,-0.0297792,-0.0248201,
+                0.0248101, -0.983206,0.180805 ]
+
 
 
 mapping:

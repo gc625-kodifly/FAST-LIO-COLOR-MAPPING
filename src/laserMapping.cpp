@@ -115,11 +115,13 @@ vector<double>       extrinT_lc(3, 0.0);
 vector<double>       extrinR_lc(9, 0.0);
 vector<double>       K_camera(9, 0.0);
 vector<double>       D_camera(5, 0.0);
+bool                 use_no_ekf_coloring;
 double               time_offset_lidar_camera = 0.0;
 
 
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
+PointCloudXYZI::Ptr pcl_sorted(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_world(new PointCloudXYZI());
 PointCloudXYZI::Ptr normvec(new PointCloudXYZI(100000, 1));
@@ -463,6 +465,7 @@ bool sync_packages(MeasureGroup &meas)
 
             meas.image = camera_buffer[camera_id];
             meas.match_camera_time = meas.image->header.stamp.toSec();
+
             for (int i = 0; i <= camera_id; i++)
             {
                 camera_time_buffer.pop_front();
@@ -867,10 +870,158 @@ Eigen::Vector2d distort(Eigen::Vector2d point)
     double x = r_coeff * point.x() + p1 * t_coeff1 + p2 * t_coeff2;
     double y = r_coeff * point.y() + p1 * t_coeff3 + p2 * t_coeff1;
 
+
+    // print everything 
+    // ROS_WARN("k1: %lf, k2: %lf, k3: %lf, p1: %lf, p2: %lf", k1, k2, k3, p1, p2);
+    // ROS_WARN("x2: %lf, y2: %lf", x2, y2);
+    // ROS_WARN("r2: %lf, r4: %lf, r6: %lf", r2, r4, r6);
+    // ROS_WARN("r_coeff: %lf, t_coeff1: %lf, t_coeff2: %lf, t_coeff3: %lf", r_coeff, t_coeff1, t_coeff2, t_coeff3);
+
     return Eigen::Vector2d(x, y);
 
 }
 
+
+void saveIsometry3d(const Eigen::Isometry3d& T, const std::string& filename)
+{
+    // Open a text file
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        // Write the transformation matrix to the file
+        file << T.matrix() << std::endl;
+        file.close();
+    } else {
+        std::cerr << "Unable to open file" << std::endl;
+        // return 1;
+    }
+
+}
+
+
+void savePointCloudXYZI (const PointCloudXYZI::Ptr& cloud, const std::string& filename)
+{
+    // string file_name = string("scans.pcd");
+    // string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
+    pcl::PCDWriter pcd_writer;
+    // cout << "current scan saved to /PCD/" << filename<<endl;
+    pcd_writer.writeBinary(filename, *cloud);
+
+}
+
+void generateColorMapNoEkf(sensor_msgs::ImagePtr msg_rgb, 
+                    Eigen::Isometry3d& camera_state, 
+                    Eigen::Isometry3d& lidar_state,
+                    pcl::PointCloud<pcl::PointXYZINormal>::Ptr& pc,
+                    Eigen::Matrix3d& extrinsic_r, 
+                    Eigen::Vector3d& extrinsic_t,
+                    pcl::PointCloud<pcl::PointXYZINormal>::Ptr& pc_sorted,
+                    pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc_color)
+{
+    Eigen::Isometry3d T_cl = camera_state.inverse() * lidar_state;
+    Eigen::Matrix3d Rcl = T_cl.rotation();
+    Eigen::Vector3d tcl = T_cl.translation();
+    Eigen::Matrix3d transposed_extrinsic_r  = extrinsic_r.transpose();
+    extrinsic_t = -1 * extrinsic_t;
+    
+    // ROS_WARN("extrinsic_r: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", extrinsic_r(0, 0), extrinsic_r(0, 1), extrinsic_r(0, 2), extrinsic_r(1, 0), extrinsic_r(1, 1), extrinsic_r(1, 2), extrinsic_r(2, 0), extrinsic_r(2, 1), extrinsic_r(2, 2));
+    // ROS_WARN("extrinsic_t: \n %lf %lf %lf \n", extrinsic_t(0), extrinsic_t(1), extrinsic_t(2));
+    // print out transposed extrinsic r 
+    // ROS_WARN("transposed_extrinsic_r: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", transposed_extrinsic_r(0, 0), 
+    // transposed_extrinsic_r(0, 1), transposed_extrinsic_r(0, 2), transposed_extrinsic_r(1, 0), transposed_extrinsic_r(1, 1), 
+    // transposed_extrinsic_r(1,2),transposed_extrinsic_r(2, 0), transposed_extrinsic_r(2,1), transposed_extrinsic_r(2,2));
+
+
+
+    cv::Mat rgb = cv_bridge::toCvCopy(*msg_rgb, "bgr8")->image;
+
+    // ROS_WARN("camera_state: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", camera_state(0, 0), camera_state(0, 1), camera_state(0, 2), camera_state(1, 0), camera_state(1, 1), camera_state(1, 2), camera_state(2, 0), camera_state(2, 1), camera_state(2, 2));
+    // log rcl and tcl
+    // ROS_WARN("rcl: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", Rcl(0, 0), Rcl(0, 1), Rcl(0, 2), Rcl(1, 0), Rcl(1, 1), Rcl(1, 2), Rcl(2, 0), Rcl(2, 1), Rcl(2, 2));
+    // ROS_WARN("tcl: \n %lf %lf %lf \n", tcl(0), tcl(1), tcl(2));
+    
+    if(0){
+        cv::Mat hsv;
+        cv::cvtColor(rgb, hsv, cv::COLOR_BGR2HSV);
+
+        // 调整饱和度和亮度
+        float saturation_scale = 1.5;  // 饱和度增加 50%
+        float brightness_scale = 1.5;  // 亮度增加 50%
+        for (int y = 0; y < hsv.rows; y++) {
+            for (int x = 0; x < hsv.cols; x++) {
+                hsv.at<cv::Vec3b>(y, x)[1] = cv::saturate_cast<uchar>(hsv.at<cv::Vec3b>(y, x)[1] * saturation_scale);
+                hsv.at<cv::Vec3b>(y, x)[2] = cv::saturate_cast<uchar>(hsv.at<cv::Vec3b>(y, x)[2] * brightness_scale);
+            }
+        }
+
+        // 转换回 BGR 色彩空间
+        cv::Mat adjusted_image;
+        cv::cvtColor(hsv, adjusted_image, cv::COLOR_HSV2BGR);
+        rgb = adjusted_image;
+
+    }
+    
+
+    // cv::imwrite("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/image.png", adjusted_image);
+    // int skip_factor = 1; 
+
+    // exit(0);
+    // ROS_WARN("is points size same as sorted points size: %d %d", pc->points.size(), pc_sorted->points.size());
+    cv::Scalar point_color(0, 0, 0); 
+
+    vector<vector<int>> vu;
+    
+    for (int i = 0; i < pc->points.size(); i++)
+    {
+        Eigen::Vector3d point_pc = {pc->points[i].x, pc->points[i].y, pc->points[i].z};
+        Eigen::Vector3d point_camera = Rcl * point_pc + tcl;
+
+        Eigen::Vector3d point_pcl_sorted = {pc_sorted->points[i].x, pc_sorted->points[i].y, pc_sorted->points[i].z};
+        Eigen::Vector3d point_pcl_sorted_camera = transposed_extrinsic_r * point_pcl_sorted + extrinsic_t;
+        
+        // ROS_WARN("point_pc: %lf %lf %lf", point_pcl_sorted.x(), point_pcl_sorted.y(), point_pcl_sorted.z());
+        // ROS_WARN("point_camera: %lf %lf %lf", point_pcl_sorted_camera.x(), point_pcl_sorted_camera.y(), point_pcl_sorted_camera.z());
+
+        if (point_pcl_sorted_camera.z() > 0)
+        {
+            Eigen::Vector2d point_2d = (point_pcl_sorted_camera.head<2>() / point_pcl_sorted_camera.z()).eval();
+            Eigen::Vector2d point_2d_dis = distort(point_2d);
+            int u = static_cast<int>(K_camera[0] * point_2d_dis.x() + K_camera[2]);
+            int v = static_cast<int>(K_camera[4] * point_2d_dis.y() + K_camera[5]);
+
+            // vu.push_back({v,u});
+            // ROS_WARN("point_2d: %lf %lf", point_2d.x(), point_2d.y());
+            // ROS_WARN("point_2d_dis: %lf %lf", point_2d_dis.x(), point_2d_dis.y());
+            // ROS_WARN("u: %d, v: %d", u, v);
+            if (u >= 0 && u < rgb.cols && v >= 0 && v < rgb.rows)
+            {
+                pcl::PointXYZRGB point_rgb;
+                point_rgb.x = point_pc.x();
+                point_rgb.y = point_pc.y();
+                point_rgb.z = point_pc.z();
+                point_rgb.b = (rgb.at<cv::Vec3b>(v, u)[0]);
+                point_rgb.g = (rgb.at<cv::Vec3b>(v, u)[1]);
+                point_rgb.r = (rgb.at<cv::Vec3b>(v, u)[2]);
+                pc_color->push_back(point_rgb);
+
+                    
+            }
+    
+        }
+
+
+    }
+    
+    // write vu to file in format 
+    // v_0 u_0
+    // v_1 u_1 ...
+    // ofstream myfile;
+    // myfile.open("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/vu.txt");
+    // for (int i = 0; i < vu.size(); i++)
+    // {
+    //     myfile << vu[i][0] << " " << vu[i][1] << endl;
+    // }
+    // myfile.close();
+}
 
 void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_state, Eigen::Isometry3d& lidar_state,
                       pcl::PointCloud<pcl::PointXYZINormal>::Ptr& pc,
@@ -881,10 +1032,10 @@ void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_s
     Eigen::Vector3d tcl = T_cl.translation();
     cv::Mat rgb = cv_bridge::toCvCopy(*msg_rgb, "bgr8")->image;
 
-    ROS_WARN("camera_state: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", camera_state(0, 0), camera_state(0, 1), camera_state(0, 2), camera_state(1, 0), camera_state(1, 1), camera_state(1, 2), camera_state(2, 0), camera_state(2, 1), camera_state(2, 2));
+    // ROS_WARN("camera_state: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", camera_state(0, 0), camera_state(0, 1), camera_state(0, 2), camera_state(1, 0), camera_state(1, 1), camera_state(1, 2), camera_state(2, 0), camera_state(2, 1), camera_state(2, 2));
     // log rcl and tcl
-    ROS_WARN("rcl: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", Rcl(0, 0), Rcl(0, 1), Rcl(0, 2), Rcl(1, 0), Rcl(1, 1), Rcl(1, 2), Rcl(2, 0), Rcl(2, 1), Rcl(2, 2));
-    ROS_WARN("tcl: \n %lf %lf %lf \n", tcl(0), tcl(1), tcl(2));
+    // ROS_WARN("rcl: \n %lf %lf %lf \n %lf %lf %lf \n %lf %lf %lf \n", Rcl(0, 0), Rcl(0, 1), Rcl(0, 2), Rcl(1, 0), Rcl(1, 1), Rcl(1, 2), Rcl(2, 0), Rcl(2, 1), Rcl(2, 2));
+    // ROS_WARN("tcl: \n %lf %lf %lf \n", tcl(0), tcl(1), tcl(2));
     cv::Mat hsv;
     cv::cvtColor(rgb, hsv, cv::COLOR_BGR2HSV);
 
@@ -902,19 +1053,28 @@ void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_s
     cv::Mat adjusted_image;
     cv::cvtColor(hsv, adjusted_image, cv::COLOR_HSV2BGR);
     rgb = adjusted_image;
-    cv::imwrite("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/image.png", adjusted_image);
-    int skip_factor = 1; 
+    // cv::imwrite("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/image.png", adjusted_image);
+    // int skip_factor = 1; 
     cv::Scalar point_color(0, 0, 0); 
     for (int i = 0; i < pc->points.size(); i++)
     {
         Eigen::Vector3d point_pc = {pc->points[i].x, pc->points[i].y, pc->points[i].z};
         Eigen::Vector3d point_camera = Rcl * point_pc + tcl;
+        
+        
+        // ROS_WARN("point_pc: %lf %lf %lf", point_pc.x(), point_pc.y(), point_pc.z());
+        // ROS_WARN("point_camera: %lf %lf %lf", point_camera.x(), point_camera.y(), point_camera.z());
+
         if (point_camera.z() > 0)
         {
             Eigen::Vector2d point_2d = (point_camera.head<2>() / point_camera.z()).eval();
             Eigen::Vector2d point_2d_dis = distort(point_2d);
             int u = static_cast<int>(K_camera[0] * point_2d_dis.x() + K_camera[2]);
             int v = static_cast<int>(K_camera[4] * point_2d_dis.y() + K_camera[5]);
+
+            // ROS_WARN("point_2d: %lf %lf", point_2d.x(), point_2d.y());
+            // ROS_WARN("point_2d_dis: %lf %lf", point_2d_dis.x(), point_2d_dis.y());
+            // ROS_WARN("u: %d, v: %d", u, v);
             if (u >= 0 && u < rgb.cols && v >= 0 && v < rgb.rows)
             {
                 pcl::PointXYZRGB point_rgb;
@@ -926,20 +1086,21 @@ void generateColorMap(sensor_msgs::ImagePtr msg_rgb, Eigen::Isometry3d& camera_s
                 point_rgb.r = (rgb.at<cv::Vec3b>(v, u)[2]);
                 pc_color->push_back(point_rgb);
 
-                if (i % skip_factor == 0){
-                    // cv::circle(rgb, cv::Point(u, v), 3, cv::Scalar(point_rgb.b, point_rgb.g, point_rgb.r), 1);
-                    cv::circle(rgb, cv::Point(u, v), 3, point_color, -1);
-                }
+                // if (i % skip_factor == 0){
+                //     // cv::circle(rgb, cv::Point(u, v), 3, cv::Scalar(point_rgb.b, point_rgb.g, point_rgb.r), 1);
+                //     cv::circle(rgb, cv::Point(u, v), 3, point_color, -1);
+                // }
                     
             }
         }
+        // exit(0);
 
     }
-    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(msg_rgb->header, "bgr8", rgb).toImageMsg();
-    image_pub.publish(image_msg);
-    sensor_msgs::PointCloud2 output;
-    pcl::toROSMsg(*pc, output);
-    lidar_for_coloring_pub.publish(output);
+    // sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(msg_rgb->header, "bgr8", rgb).toImageMsg();
+    // image_pub.publish(image_msg);
+    // sensor_msgs::PointCloud2 output;
+    // pcl::toROSMsg(*pc, output);
+    // lidar_for_coloring_pub.publish(output);
     
 }
 
@@ -986,6 +1147,7 @@ int main(int argc, char** argv)
     nh.param<vector<double>>("color_mapping/extrinsic_R", extrinR_lc, vector<double>());
     nh.param<vector<double>>("color_mapping/K_camera", K_camera, vector<double>());
     nh.param<vector<double>>("color_mapping/D_camera", D_camera, vector<double>());
+    nh.param<bool>("color_mapping/use_no_ekf_coloring", use_no_ekf_coloring, true);
     nh.param<string>("common/camera_topic", camera_topic, "/camera/color/image_raw");
     nh.param<double>("color_mapping/time_offset_lidar_to_camera", time_offset_lidar_camera, 0.0);
     cout<<"p_pre->lidar_type "<<p_pre->lidar_type<<endl;
@@ -1104,7 +1266,7 @@ int main(int argc, char** argv)
             svd_time   = 0;
             t0 = omp_get_wtime();
 
-            p_imu->Process(Measures, kf, feats_undistort);
+            p_imu->Process(Measures, kf, feats_undistort, pcl_sorted);
             state_point = kf.get_x();
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
 
@@ -1212,13 +1374,68 @@ int main(int argc, char** argv)
                 state_imu.rotate(Eigen::Quaterniond(kf.get_x().rot));
                 Eigen::Isometry3d state_lidar = state_imu * T_IL;
 
+                // lidar_end_time and Measure.match_camera_time are the timestamps of the lidar and image here 
+                // std::ofstream file("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/timestamps.txt", std::ios::app);
+
+                // saveIsometry3d(state_lidar, 
+                // "/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/lidar_state/" + to_string(lidar_end_time) + ".txt");
+
+                // saveIsometry3d(state_camera, 
+                // "/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/camera_state/" + to_string(Measures.match_camera_time) + ".txt");
+
+                // savePointCloudXYZI(feats_undistort,
+                // "/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/lidar/" + to_string(Measures.lidar_end_time) + ".pcd");
+
+                // savePointCloudXYZI(Measures.lidar,
+                // "/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/lidar_raw/" + to_string(Measures.lidar_end_time) + ".pcd");
+
+
+                // // check if pcl_sorted is empty:
+
+                // ROS_WARN("pcl_sorted size: %d", pcl_sorted->points.size());
+                // // print 1 point
+                // ROS_WARN("pcl_sorted: %lf %lf %lf", pcl_sorted->points[0].x, pcl_sorted->points[0].y, pcl_sorted->points[0].z);
+
+                // savePointCloudXYZI(pcl_sorted,
+                // "/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/lidar_sorted/" + to_string(Measures.lidar_end_time) + ".pcd");
+
+                // file << to_string(Measures.match_camera_time)+" "+to_string(Measures.lidar_end_time)+"\n";
+                // file.flush();
+                // file.close();
+                // cv::imwrite("/home/gabriel/fast_lio_color_ws/src/FAST-LIO-COLOR-MAPPING/PCD/sync_data/camera/" + to_string(Measures.match_camera_time) + ".png", 
+                // cv_bridge::toCvCopy(Measures.image, "bgr8")->image);
+
+                // print first point from feats_undistort and pcl_sorted to check if they are the same
+                // int test_idx = 5;
+                // ROS_WARN("feats_undistort: %lf %lf %lf", feats_undistort->points[test_idx].x, feats_undistort->points[test_idx].y, feats_undistort->points[test_idx].z);
+                // ROS_WARN("pcl_sorted: %lf %lf %lf", pcl_sorted->points[test_idx].x, pcl_sorted->points[test_idx].y, pcl_sorted->points[test_idx].z);
+
+
+                if (use_no_ekf_coloring){
+                    generateColorMapNoEkf(
+                        Measures.image, 
+                        state_camera, 
+                        state_lidar, 
+                        feats_undistort,
+                        Camera_R_wrt_Lidar,
+                        Camera_T_wrt_Lidar,
+                        pcl_sorted,
+                        pc_color); 
+                }
+
+                else{
                 generateColorMap(Measures.image, state_camera, state_lidar, feats_undistort, pc_color);
+                }
+
                 pcl::transformPointCloud(*pc_color, *pc_color, state_lidar.matrix());
                 sensor_msgs::PointCloud2 color_msg;
                 pcl::toROSMsg(*pc_color, color_msg);
                 color_msg.header.frame_id = "camera_init";
                 color_msg.header.stamp = ros::Time().fromSec(lidar_end_time);
                 pubColorMap.publish(color_msg);
+
+
+
 
                 camera_pushed = false;
             }
