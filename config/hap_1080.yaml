@@ -13,9 +13,9 @@ preprocess:
 
 color_mapping:
     use_no_ekf_coloring: true
-    K_camera: [766.38136,   0.     , 628.1358 ,
-           0.     , 720.66146, 348.08063,
-           0.     ,   0.     ,   1.     ]
+    K_camera: [766.38136,   0     , 628.1358 ,
+           0     , 720.66146, 348.08063,
+           0     ,   0     ,   1.     ]
     D_camera: [-0.327005, 0.077308, 0.000458, 0.002563, 0.000000]
     time_offset_lidar_to_camera: 0                # ms         # lidar to camera
     # extrinsic_R: [-0.00436301,-0.999976,-0.00546917,
