@@ -6,7 +6,7 @@
     <arg name="bd_list" default="3GGDLAM001ZY59" />
     <arg name="rtsp_username" default="admin" />
     <arg name="rtsp_password" default="%24Kodifly2022" />
-    <arg name="rtsp_ip" default="192.168.1.108" />
+    <arg name="rtsp_ip" default="192.168.1.138" />
 
 
 	<rosparam command="load" file="$(find fast_lio_color_mapping)/config/hap_1080.yaml" />
